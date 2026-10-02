@@ -8,7 +8,6 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 
-// Serve static frontend files
 app.use(express.static(path.join(__dirname, 'public')));
 
 /**
@@ -19,15 +18,19 @@ async function runSession(sessionId, socket) {
   try {
     socket.emit('log', `[Worker ${sessionId}] Launching browser...`);
 
-    // Configuration optimized for Render / Linux environments
+    // Configuration optimized for Railway / Linux container environments
     browser = await puppeteer.launch({
       headless: 'new',
+      executablePath: puppeteer.executablePath(),
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
         '--disable-dev-shm-usage',
         '--disable-accelerated-2d-canvas',
-        '--disable-gpu'
+        '--disable-gpu',
+        '--no-first-run',
+        '--no-zygote',
+        '--single-process'
       ]
     });
 
@@ -38,18 +41,15 @@ async function runSession(sessionId, socket) {
     await page.goto('https://rngdle.com', { waitUntil: 'networkidle2', timeout: 60000 });
 
     // --- Action Execution ---
-    // Update selectors depending on the target site layout
-    socket.emit('log', `[Worker ${sessionId}] Rolling...`);
-    
-    // Example: Click Roll button if present
+    socket.emit('log', `[Worker ${sessionId}] Looking for Roll button...`);
     const rollButton = await page.$('button#roll-btn, .roll-button, button');
     if (rollButton) {
       await rollButton.click();
-      await new Promise(r => setTimeout(r, 2000)); // Wait for roll animation
+      await new Promise(r => setTimeout(r, 2000));
     }
 
-    // --- Read LocalStorage / State ---
-    socket.emit('log', `[Worker ${sessionId}] Fetching local storage data...`);
+    // --- Read LocalStorage ---
+    socket.emit('log', `[Worker ${sessionId}] Reading local storage...`);
     const localStorageData = await page.evaluate(() => {
       let data = {};
       for (let i = 0; i < localStorage.length; i++) {
@@ -59,14 +59,12 @@ async function runSession(sessionId, socket) {
       return data;
     });
 
-    // Extract score or specific keys if known
     const score = localStorageData.score || localStorageData.stats || 'Data retrieved';
 
     // --- Take Screenshot ---
     socket.emit('log', `[Worker ${sessionId}] Capturing screenshot...`);
     const screenshotBuffer = await page.screenshot({ encoding: 'base64' });
 
-    // Send completed results back to the client
     socket.emit('result', {
       sessionId,
       score,
@@ -87,7 +85,6 @@ async function runSession(sessionId, socket) {
   }
 }
 
-// WebSocket connection handler
 io.on('connection', (socket) => {
   console.log('Client connected:', socket.id);
 
@@ -95,7 +92,6 @@ io.on('connection', (socket) => {
     const connections = parseInt(data.connections, 10) || 1;
     socket.emit('log', `Starting ${connections} parallel automation tasks...`);
 
-    // Run parallel sessions
     const tasks = [];
     for (let i = 1; i <= connections; i++) {
       tasks.push(runSession(i, socket));
@@ -106,7 +102,8 @@ io.on('connection', (socket) => {
   });
 });
 
+// Railway dynamic PORT binding
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
+server.listen(PORT, '0.0.0.0', () => {
   console.log(`Server listening on port ${PORT}`);
 });
