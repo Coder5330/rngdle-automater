@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RNGdle Automator</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; background: #121212; color: #fff; }
+    .controls { margin-bottom: 20px; }
+    input, button { padding: 10px; font-size: 16px; margin-right: 10px; }
+    button { cursor: pointer; background: #007bff; color: white; border: none; border-radius: 4px; }
+    button:disabled { background: #555; }
+    #logs { background: #1e1e1e; padding: 10px; border-radius: 5px; height: 150px; overflow-y: auto; font-family: monospace; font-size: 13px; }
+    .results-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 20px; margin-top: 20px; }
+    .card { background: #222; border: 1px solid #444; padding: 15px; border-radius: 8px; }
+    .card img { width: 100%; height: auto; border-radius: 4px; margin-top: 10px; }
+    pre { background: #111; padding: 8px; border-radius: 4px; overflow-x: auto; font-size: 12px; }
+  </style>
+</head>
+<body>
+
+  <h1>RNGdle Parallel Automator</h1>
+  
+  <div class="controls">
+    <label for="connections">Parallel Sessions (X): </label>
+    <input type="number" id="connections" min="1" max="10" value="2">
+    <button id="start-btn" onclick="startAutomation()">Run Automation</button>
+  </div>
+
+  <h3>Activity Log</h3>
+  <div id="logs"></div>
+
+  <h3>Results</h3>
+  <div id="results" class="results-grid"></div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    const socket = io();
+    const logsEl = document.getElementById('logs');
+    const resultsEl = document.getElementById('results');
+    const startBtn = document.getElementById('start-btn');
+
+    function log(msg) {
+      const line = document.createElement('div');
+      line.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+      logsEl.appendChild(line);
+      logsEl.scrollTop = logsEl.scrollHeight;
+    }
+
+    function startAutomation() {
+      const count = document.getElementById('connections').value;
+      resultsEl.innerHTML = '';
+      logsEl.innerHTML = '';
+      startBtn.disabled = true;
+
+      socket.emit('start-automation', { connections: count });
+    }
+
+    socket.on('log', (msg) => {
+      log(msg);
+      if (msg.includes('finished!')) {
+        startBtn.disabled = false;
+      }
+    });
+
+    socket.on('result', (data) => {
+      const card = document.createElement('div');
+      card.className = 'card';
+
+      if (data.error) {
+        card.innerHTML = `<h4>Session #${data.sessionId} - Failed</h4><p style="color:red">${data.error}</p>`;
+      } else {
+        card.innerHTML = `
+          <h4>Session #${data.sessionId}</h4>
+          <p><strong>Score / Stats:</strong> ${typeof data.score === 'object' ? JSON.stringify(data.score) : data.score}</p>
+          <details>
+            <summary>Raw LocalStorage</summary>
+            <pre>${JSON.stringify(data.localStorage, null, 2)}</pre>
+          </details>
+          <img src="${data.image}" alt="Session Screenshot">
+        `;
+      }
+      resultsEl.appendChild(card);
+    });
+  </script>
+</body>
+</html>
